@@ -1,3 +1,14 @@
+---
+title: Smart Document Query System
+emoji: 📄
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+pinned: false
+license: mit
+---
+
 # Smart Document Query System
 ### Retrieval-Augmented AI for Intelligent Document Querying
 
