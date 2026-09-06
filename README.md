@@ -1,5 +1,25 @@
-# Smart Document Query System
-### Retrieval-Augmented AI for Intelligent Document Querying
+<h1 align="center">Smart Document Query System</h1>
+
+<p align="center">
+  <strong>Ask your own documents questions in plain English — and get answers with sources.</strong>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+">
+  <img src="https://img.shields.io/badge/flask-3.0-000000.svg" alt="Flask 3.0">
+  <img src="https://img.shields.io/badge/PyTorch-2.2-ee4c2c.svg" alt="PyTorch 2.2">
+  <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="MIT License">
+  <img src="https://img.shields.io/badge/runs-100%25%20offline-success.svg" alt="Runs offline">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/chat-answer.png" alt="Asking a question and receiving a sourced answer" width="900">
+</p>
+
+Upload a PDF or text file, ask a question, and the system finds the passages that
+actually answer it — then quotes the answer back to you with the document and page
+it came from. Everything runs locally on your own machine: no API keys, no accounts,
+no data leaving your computer.
 
 > MCA Final Year Project | University of Calicut | 2025-26
 
@@ -112,6 +132,28 @@ communication over a computer network.
 
 Source: network_security.pdf · p. 47
 ```
+
+---
+
+## 📸 Screenshots
+
+### Asking a question
+Answers are extracted from your own documents, with the source file shown beneath each response.
+
+![Chat answer](docs/screenshots/chat-answer.png)
+
+### Starting a new chat
+Documents and recent queries stay in the sidebar, so you can scope questions to specific files.
+
+![Empty state](docs/screenshots/empty-state.png)
+
+### Sign in / Register
+Each user gets their own private document library and query history.
+
+<p align="center">
+  <img src="docs/screenshots/login.png" alt="Login screen" width="49%">
+  <img src="docs/screenshots/register.png" alt="Registration screen" width="49%">
+</p>
 
 ---
 
@@ -326,9 +368,11 @@ This is an academic project for MCA coursework. Feedback and suggestions welcome
 
 ## 📝 License
 
-This project is part of academic coursework at University of Calicut.
+Released under the [MIT License](LICENSE) — free to use, modify, and distribute,
+including commercially, provided the copyright notice is retained.
 
-For educational and personal use. Commercial use requires permission.
+Originally built as academic coursework at the University of Calicut. If you use
+it in your own work, a link back is appreciated but not required.
 
 ---
 
