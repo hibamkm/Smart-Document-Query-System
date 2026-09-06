@@ -17,7 +17,6 @@ app.config['UPLOAD_FOLDER'] = config.UPLOAD_FOLDER
 
 os.makedirs(config.UPLOAD_FOLDER, exist_ok=True)
 database.init_db()
-retrieval.initialize_models()
 
 
 @app.context_processor
@@ -168,8 +167,11 @@ def upload():
         flash('Could not extract text from the file.', 'danger')
         return redirect(url_for('query'))
 
-    for page_num, chunk in page_chunks:
-        embedding_blob = retrieval.embed_to_blob(chunk)
+    # Embed every chunk in one batched call; a per-chunk request would mean
+    # dozens of round trips for a single upload.
+    embedding_blobs = retrieval.embed_many_to_blobs([c for _, c in page_chunks])
+
+    for (page_num, chunk), embedding_blob in zip(page_chunks, embedding_blobs):
         database.insert_db(
             'INSERT INTO DOCUMENT_SECTION (document_id, section_text, embedding, page_number) VALUES (?, ?, ?, ?)',
             (doc_id, chunk, embedding_blob, page_num)

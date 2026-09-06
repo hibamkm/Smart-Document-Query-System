@@ -1,107 +1,125 @@
 import os
-# Enable offline mode BEFORE importing HuggingFace libraries
-# This prevents checking huggingface.co when models are cached
-os.environ['TRANSFORMERS_OFFLINE'] = '1'
-os.environ['HF_HUB_OFFLINE'] = '1'
-os.environ['HF_DATASETS_OFFLINE'] = '1'
-
 import re
+import json
 import pickle
+import urllib.error
+import urllib.request
+
 import numpy as np
-from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
-from transformers import AutoTokenizer, AutoModelForQuestionAnswering
-import torch
+
 import database
 
-embedding_model = None
-_qa_tokenizer = None
-_qa_model = None
-_qa_model_name = 'distilbert-base-cased-distilled-squad'
+# Gemini serves both halves of the pipeline: embeddings for semantic retrieval,
+# and answer extraction over the retrieved context. Nothing runs locally, which
+# is what keeps the deployment bundle inside serverless size limits.
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta'
+EMBED_MODEL = 'models/text-embedding-004'
+ANSWER_MODEL = 'models/gemini-2.0-flash'
+EMBED_DIM = 768
+_HTTP_TIMEOUT = 30
+
+
+class GeminiError(RuntimeError):
+    """Raised when the Gemini API cannot be reached or returns an error."""
 
 
 def initialize_models():
-    global embedding_model, _qa_tokenizer, _qa_model
+    """Verify configuration. Kept as a no-op hook so callers stay unchanged."""
+    if not GEMINI_API_KEY:
+        raise GeminiError(
+            'GEMINI_API_KEY is not set. Create a key at '
+            'https://aistudio.google.com/apikey and set it in the environment.'
+        )
 
-    if embedding_model is not None and _qa_tokenizer is not None:
-        return
 
-    # Check if models are cached (for true offline mode)
-    cache_dir = os.path.expanduser('~/.cache/huggingface/hub')
-    models_cached = os.path.exists(cache_dir) and len(os.listdir(cache_dir)) > 0
-
+def _post(path, payload):
+    url = f'{GEMINI_BASE}/{path}?key={GEMINI_API_KEY}'
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode('utf-8'),
+        headers={'Content-Type': 'application/json'},
+        method='POST',
+    )
     try:
-        print("Initializing AI models...")
+        with urllib.request.urlopen(request, timeout=_HTTP_TIMEOUT) as response:
+            return json.loads(response.read().decode('utf-8'))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode('utf-8', 'replace')[:400]
+        raise GeminiError(f'Gemini API error {exc.code}: {detail}') from exc
+    except urllib.error.URLError as exc:
+        raise GeminiError(f'Could not reach the Gemini API: {exc.reason}') from exc
 
-        if embedding_model is None:
-            if models_cached:
-                print("  → Loading sentence transformer model from cache...")
-            else:
-                print("  → Loading sentence transformer model (first run: ~80MB download)...")
 
-            # SentenceTransformer will automatically use cache if available
-            embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+def embed_texts(texts, task_type='RETRIEVAL_DOCUMENT'):
+    """Embed a list of strings in one batched call. Returns a list of arrays."""
+    initialize_models()
+    if not texts:
+        return []
 
-            print("  ✓ Sentence transformer ready")
+    # Gemini caps batchEmbedContents at 100 requests per call.
+    vectors = []
+    for offset in range(0, len(texts), 100):
+        batch = texts[offset:offset + 100]
+        payload = {'requests': [
+            {
+                'model': EMBED_MODEL,
+                'content': {'parts': [{'text': text}]},
+                'taskType': task_type,
+            }
+            for text in batch
+        ]}
+        data = _post(f'{EMBED_MODEL}:batchEmbedContents', payload)
+        for item in data.get('embeddings', []):
+            vectors.append(np.asarray(item['values'], dtype=np.float32))
 
-        if _qa_tokenizer is None:
-            if models_cached:
-                print("  → Loading question answering model from cache...")
-            else:
-                print("  → Loading question answering model (first run: ~250MB download)...")
+    if len(vectors) != len(texts):
+        raise GeminiError('Gemini returned fewer embeddings than inputs.')
+    return vectors
 
-            # Try offline first if cached, otherwise allow download
-            try:
-                _qa_tokenizer = AutoTokenizer.from_pretrained(_qa_model_name, local_files_only=True)
-                _qa_model = AutoModelForQuestionAnswering.from_pretrained(_qa_model_name, local_files_only=True)
-            except Exception:
-                # First run - need to download
-                _qa_tokenizer = AutoTokenizer.from_pretrained(_qa_model_name)
-                _qa_model = AutoModelForQuestionAnswering.from_pretrained(_qa_model_name)
 
-            print("  ✓ Question answering model ready")
+def _cosine(a, b):
+    denom = float(np.linalg.norm(a) * np.linalg.norm(b))
+    if denom == 0.0:
+        return 0.0
+    return float(np.dot(a, b) / denom)
 
-        print("✓ All models initialized and cached for offline use\n")
 
-    except Exception as e:
-        error_msg = str(e)
-        if 'Connection' in error_msg or 'timeout' in error_msg.lower() or 'network' in error_msg.lower() or 'offline' in error_msg.lower():
-            print("\n" + "="*70)
-            print("ERROR: Cannot download models - Internet connection required")
-            print("="*70)
-            print("\nThis application requires AI models (~330MB total) that need to be")
-            print("downloaded from HuggingFace on first run. After the first successful")
-            print("run, the models are cached locally and the app works offline.")
-            print("\nPlease connect to the internet and restart the application.")
-            print("="*70 + "\n")
-            raise SystemExit(1)
-        else:
-            print(f"\nERROR initializing models: {error_msg}")
-            raise
+_EXTRACT_PROMPT = (
+    'You are an extractive question answering system. Answer the question using '
+    'ONLY the passage below. Quote the relevant sentence or phrase from the '
+    'passage verbatim; do not paraphrase, explain, or add information. '
+    'If the passage does not contain the answer, reply with exactly: NO_ANSWER\n\n'
+    'Passage:\n{context}\n\nQuestion: {question}\n\nAnswer:'
+)
 
 
 def _extract_answer(question, context):
-    inputs = _qa_tokenizer(question, context, return_tensors='pt',
-                           truncation=True, max_length=512)
+    initialize_models()
 
-    with torch.no_grad():
-        outputs = _qa_model(**inputs)
+    payload = {
+        'contents': [{
+            'parts': [{'text': _EXTRACT_PROMPT.format(context=context, question=question)}]
+        }],
+        # Deterministic output keeps answers reproducible for the same document.
+        'generationConfig': {'temperature': 0.0, 'maxOutputTokens': 256},
+    }
+    data = _post(f'{ANSWER_MODEL}:generateContent', payload)
 
-    start_scores = outputs.start_logits
-    end_scores = outputs.end_logits
+    try:
+        candidate = data['candidates'][0]
+        answer = ''.join(
+            part.get('text', '') for part in candidate['content']['parts']
+        ).strip()
+    except (KeyError, IndexError):
+        return '', 0.0
 
-    start_idx = torch.argmax(start_scores)
-    end_idx = torch.argmax(end_scores)
+    if answer == 'NO_ANSWER':
+        return '', 0.0
 
-    if end_idx < start_idx:
-        end_idx = start_idx
-
-    input_ids = inputs['input_ids'][0]
-    answer_tokens = input_ids[start_idx:end_idx + 1]
-    answer = _qa_tokenizer.decode(answer_tokens, skip_special_tokens=True)
-    confidence = float(torch.max(start_scores) + torch.max(end_scores))
-
-    answer = answer.strip()
+    # The caller only checks answer length, but keep a confidence-shaped return
+    # value so the signature matches the previous DistilBERT implementation.
+    confidence = 1.0 if answer else 0.0
 
     if answer and len(answer) < 15:
         expanded = _expand_to_sentence(answer, context)
@@ -146,9 +164,12 @@ NOT_FOUND_MSG = 'The uploaded documents do not contain enough information to ans
 
 
 def embed_to_blob(text):
-    initialize_models()
-    vector = embedding_model.encode(text)
-    return pickle.dumps(vector)
+    return pickle.dumps(embed_texts([text])[0])
+
+
+def embed_many_to_blobs(texts):
+    """Batched form of embed_to_blob: one API round trip per 100 chunks."""
+    return [pickle.dumps(vector) for vector in embed_texts(texts)]
 
 
 def blob_to_array(blob):
@@ -271,7 +292,7 @@ def _list_boost(section_text):
 
 def get_relevant_sections(query_text, top_k=8, document_ids=None):
     initialize_models()
-    query_vec = embedding_model.encode(query_text).reshape(1, -1)
+    query_vec = embed_texts([query_text], task_type='RETRIEVAL_QUERY')[0]
 
     if document_ids:
         placeholders = ','.join('?' * len(document_ids))
@@ -291,14 +312,29 @@ def get_relevant_sections(query_text, top_k=8, document_ids=None):
     is_list_q = _is_list_query(query_text)
     key_term = _extract_key_term(query_text) if is_def_query else ''
 
+    # Backfill any sections stored without an embedding in a single batched call
+    # rather than one API round trip per section.
+    missing = [row for row in rows if row['embedding'] is None]
+    backfilled = {}
+    if missing:
+        vectors = embed_texts([row['section_text'] for row in missing])
+        backfilled = {
+            row['section_id']: vector for row, vector in zip(missing, vectors)
+        }
+
     results = []
     for row in rows:
         if row['embedding'] is None:
-            section_vec = embedding_model.encode(row['section_text']).reshape(1, -1)
+            section_vec = backfilled[row['section_id']]
         else:
-            section_vec = blob_to_array(row['embedding']).reshape(1, -1)
+            section_vec = blob_to_array(row['embedding'])
 
-        score = float(cosine_similarity(query_vec, section_vec)[0][0])
+        # Embeddings written by an earlier model have a different width and
+        # cannot be compared against the current query vector.
+        if section_vec.shape[-1] != query_vec.shape[-1]:
+            continue
+
+        score = _cosine(query_vec, section_vec)
 
         if is_def_query and key_term:
             score += _definition_boost(row['section_text'], key_term)
