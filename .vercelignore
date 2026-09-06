@@ -1,9 +1,0 @@
-.venv/
-__pycache__/
-*.py[cod]
-.DS_Store
-.vscode/
-*.db
-uploads/
-Dockerfile
-.dockerignore
