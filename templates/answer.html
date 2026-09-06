@@ -1,0 +1,200 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="chat-area">
+
+    <!-- Chat messages -->
+    <div class="chat-messages" id="chatMessages">
+        <div class="chat-messages-inner">
+
+            {% for item in chat_history %}
+            {% set is_current = (item['query_id'] == query['query_id']) %}
+
+            <!-- User message -->
+            <div class="msg-user {% if not is_current %}msg-history{% endif %}">
+                <div class="msg-user-bubble">{{ item['query_text'] }}</div>
+            </div>
+
+            <!-- AI response -->
+            <div class="msg-ai {% if not is_current %}msg-history{% endif %} {% if is_current %}msg-current{% endif %}">
+                <div class="msg-ai-row">
+                    <div class="bot-avatar">
+                        <svg width="18" height="18" fill="none" stroke="white" stroke-width="2" viewBox="0 0 24 24"><path d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z"/></svg>
+                    </div>
+                    <div class="msg-ai-card">
+                        <div class="msg-ai-label">
+                            <svg width="14" height="14" fill="var(--success)" viewBox="0 0 16 16"><circle cx="8" cy="8" r="8"/></svg>
+                            Smart Doc Query
+                        </div>
+
+                        {% if item['answer_text'] %}
+                            <div class="msg-ai-text">{{ item['answer_text'] }}</div>
+                        {% else %}
+                            <div class="msg-ai-text" style="color: var(--text-muted);">No answer could be generated.</div>
+                        {% endif %}
+
+                        <!-- Answer based on (source documents) -->
+                        {% if item.source_docs %}
+                        <div class="answer-source">
+                            <span class="answer-source-label">Answer based on:</span>
+                            {% for doc in item.source_docs[:2] %}
+                            <span class="answer-source-chip">
+                                <span class="answer-source-chip-icon {{ doc['file_type'] }}">
+                                    {% if doc['file_type'] == 'pdf' %}
+                                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M4 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4.5L9.5 0H4zm5.5 1.5v3h3L9.5 1.5z"/></svg>
+                                    {% else %}
+                                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M4 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4.5L9.5 0H4zm5.5 1.5v3h3L9.5 1.5z"/></svg>
+                                    {% endif %}
+                                </span>
+                                {{ doc['document_name'] }}
+                                {% if doc['pages_label'] %}<span class="answer-source-chip-pages">&middot; {{ doc['pages_label'] }}</span>{% endif %}
+                            </span>
+                            {% endfor %}
+                            {% if item.source_docs|length > 2 %}
+                            <span class="answer-source-more">+{{ item.source_docs|length - 2 }} more</span>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+
+                        <!-- Source block (only for current query) -->
+                        {% if is_current and context %}
+                        <div class="source-block">
+                            <button class="source-toggle" onclick="toggleSource(this)">
+                                <span class="source-toggle-icon">&#9654;</span>
+                                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9z"/></svg>
+                                View Source
+                            </button>
+                            <div class="source-content" id="sourceContent">{{ context }}</div>
+                        </div>
+                        {% endif %}
+
+                    </div>
+                </div>
+            </div>
+
+            {% endfor %}
+
+        </div>
+    </div>
+
+    <!-- Input bar -->
+    <div class="input-bar-wrapper">
+        <form method="POST" action="{{ url_for('query') }}" id="queryForm" class="input-bar">
+            <button type="button" class="input-bar-attach" title="Upload a PDF or TXT" onclick="openUploadModal()">
+                <span class="input-bar-attach-plus" aria-hidden="true">+</span>
+                <span class="input-bar-attach-label">Add documents</span>
+            </button>
+            <input type="text" name="query_text" class="input-bar-field"
+                   id="queryInput"
+                   placeholder="Ask anything about your documents..."
+                   required autocomplete="off">
+            <input type="hidden" name="document_ids" id="documentIdsInput">
+
+            <!-- Documents selector -->
+            <div class="doc-selector">
+                <button type="button" class="doc-selector-btn" id="docSelectorBtn" onclick="handleDocSelectorClick()" title="Choose which documents to search">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9z"/></svg>
+                    <span class="doc-selector-label" id="docSelectorLabel">Documents</span>
+                    <span class="doc-selector-count" id="docSelectorCount" hidden></span>
+                    <svg width="10" height="10" fill="currentColor" viewBox="0 0 10 10" class="doc-selector-caret"><path d="M2 4l3 3 3-3"/></svg>
+                </button>
+                <div class="doc-selector-dropdown" id="docSelectorDropdown">
+                    <button type="button" class="doc-selector-upload-row" onclick="openUploadModal(); toggleDocSelector();">
+                        <span class="doc-selector-upload-icon">+</span>
+                        <span>Upload document</span>
+                    </button>
+                    {% if sidebar_docs %}
+                        {% if sidebar_docs|length > 5 %}
+                        <input type="search" class="doc-selector-filter" id="docSelectorFilter"
+                               placeholder="Filter documents..." oninput="filterDocSelector(this.value)" autocomplete="off">
+                        {% endif %}
+                        <button type="button" class="doc-selector-toggle-all" id="docSelectorToggleAll" onclick="clearAllDocs()">
+                            <span class="doc-selector-toggle-dot"></span>
+                            <span>Use all documents</span>
+                        </button>
+                        <div class="doc-selector-list" id="docSelectorList">
+                            {% for doc in sidebar_docs %}
+                            <div class="doc-selector-item"
+                                 data-doc-id="{{ doc['document_id'] }}"
+                                 data-doc-name="{{ doc['document_name']|lower }}"
+                                 onclick="toggleDoc({{ doc['document_id'] }})">
+                                <div class="doc-selector-check">
+                                    <svg width="10" height="10" fill="none" stroke="white" stroke-width="2" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5"/></svg>
+                                </div>
+                                <span class="doc-selector-item-name">{{ doc['document_name'] }}</span>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="doc-selector-empty">
+                            No documents yet. Upload one to start searching.
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <button type="submit" class="input-bar-send" id="sendBtn" title="Send">
+                <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path d="M6 12L3.269 3.126A59.768 59.768 0 0 1 21.485 12 59.77 59.77 0 0 1 3.27 20.876L5.999 12zm0 0h7.5"/>
+                </svg>
+            </button>
+        </form>
+        <div class="input-hint">Press Enter to send</div>
+    </div>
+
+</div>
+
+<script>
+// Auto-scroll to latest message
+var chatMessages = document.getElementById('chatMessages');
+chatMessages.scrollTop = chatMessages.scrollHeight;
+
+// Collapsible source
+function toggleSource(btn) {
+    var content = btn.nextElementSibling;
+    var icon = btn.querySelector('.source-toggle-icon');
+    content.classList.toggle('visible');
+    icon.classList.toggle('open');
+}
+
+// Show user message + typing indicator on submit
+document.getElementById('queryForm').addEventListener('submit', function(e) {
+    var input = document.getElementById('queryInput');
+    var sendBtn = document.getElementById('sendBtn');
+
+    if (!input.value.trim()) {
+        e.preventDefault();
+        return;
+    }
+
+    // Forward the sidebar's document selection (managed in base.html JS)
+    // so the backend can scope retrieval. Empty = "search all docs".
+    var hidden = document.getElementById('documentIdsInput');
+    if (hidden && typeof selectedDocs !== 'undefined') {
+        hidden.value = (selectedDocs || []).join(',');
+    }
+
+    sendBtn.disabled = true;
+
+    var inner = document.querySelector('.chat-messages-inner');
+    var userMsg = document.createElement('div');
+    userMsg.className = 'msg-user';
+    userMsg.innerHTML = '<div class="msg-user-bubble">' + input.value + '</div>';
+    inner.appendChild(userMsg);
+
+    var aiMsg = document.createElement('div');
+    aiMsg.className = 'msg-ai';
+    aiMsg.innerHTML =
+        '<div class="msg-ai-row">' +
+            '<div class="bot-avatar"><svg width="18" height="18" fill="none" stroke="white" stroke-width="2" viewBox="0 0 24 24"><path d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z"/></svg></div>' +
+            '<div class="msg-ai-card">' +
+                '<div class="msg-ai-label"><svg width="14" height="14" fill="var(--success)" viewBox="0 0 16 16"><circle cx="8" cy="8" r="8"/></svg> Smart Doc Query</div>' +
+                '<div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>' +
+            '</div>' +
+        '</div>';
+    inner.appendChild(aiMsg);
+
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+});
+</script>
+{% endblock %}

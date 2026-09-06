@@ -1,0 +1,124 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="chat-area">
+
+    <!-- Empty state hero -->
+    <div class="empty-hero" id="emptyHero">
+        <div class="empty-hero-icon">
+            <svg width="48" height="48" fill="none" stroke="var(--primary)" stroke-width="1.5" viewBox="0 0 24 24">
+                <path d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m5.25 12H9m2.25 4.5H9M8.25 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9z"/>
+            </svg>
+        </div>
+        <div class="empty-hero-title">Ask your documents anything</div>
+        <div class="empty-hero-subtitle">
+            Upload your documents, then ask questions in natural language. The AI will search your files and generate answers.
+        </div>
+
+    </div>
+
+    <!-- Input bar -->
+    <div class="input-bar-wrapper">
+        <form method="POST" id="queryForm" class="input-bar">
+            <button type="button" class="input-bar-attach" title="Upload a PDF or TXT" onclick="openUploadModal()">
+                <span class="input-bar-attach-plus" aria-hidden="true">+</span>
+                <span class="input-bar-attach-label">Add documents</span>
+            </button>
+            <input type="text" name="query_text" class="input-bar-field"
+                   id="queryInput"
+                   placeholder="Ask anything about your documents..."
+                   required autocomplete="off">
+            <input type="hidden" name="document_ids" id="documentIdsInput">
+
+            <!-- Documents selector -->
+            <div class="doc-selector">
+                <button type="button" class="doc-selector-btn" id="docSelectorBtn" onclick="handleDocSelectorClick()" title="Choose which documents to search">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9z"/></svg>
+                    <span class="doc-selector-label" id="docSelectorLabel">Documents</span>
+                    <span class="doc-selector-count" id="docSelectorCount" hidden></span>
+                    <svg width="10" height="10" fill="currentColor" viewBox="0 0 10 10" class="doc-selector-caret"><path d="M2 4l3 3 3-3"/></svg>
+                </button>
+                <div class="doc-selector-dropdown" id="docSelectorDropdown">
+                    <button type="button" class="doc-selector-upload-row" onclick="openUploadModal(); toggleDocSelector();">
+                        <span class="doc-selector-upload-icon">+</span>
+                        <span>Upload document</span>
+                    </button>
+                    {% if sidebar_docs %}
+                        {% if sidebar_docs|length > 5 %}
+                        <input type="search" class="doc-selector-filter" id="docSelectorFilter"
+                               placeholder="Filter documents..." oninput="filterDocSelector(this.value)" autocomplete="off">
+                        {% endif %}
+                        <button type="button" class="doc-selector-toggle-all" id="docSelectorToggleAll" onclick="clearAllDocs()">
+                            <span class="doc-selector-toggle-dot"></span>
+                            <span>Use all documents</span>
+                        </button>
+                        <div class="doc-selector-list" id="docSelectorList">
+                            {% for doc in sidebar_docs %}
+                            <div class="doc-selector-item"
+                                 data-doc-id="{{ doc['document_id'] }}"
+                                 data-doc-name="{{ doc['document_name']|lower }}"
+                                 onclick="toggleDoc({{ doc['document_id'] }})">
+                                <div class="doc-selector-check">
+                                    <svg width="10" height="10" fill="none" stroke="white" stroke-width="2" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5"/></svg>
+                                </div>
+                                <span class="doc-selector-item-name">{{ doc['document_name'] }}</span>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div class="doc-selector-empty">
+                            No documents yet. Upload one to start searching.
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <button type="submit" class="input-bar-send" id="sendBtn" title="Send">
+                <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path d="M6 12L3.269 3.126A59.768 59.768 0 0 1 21.485 12 59.77 59.77 0 0 1 3.27 20.876L5.999 12zm0 0h7.5"/>
+                </svg>
+            </button>
+        </form>
+        <div class="input-hint">Press Enter to send</div>
+    </div>
+
+</div>
+
+<script>
+document.getElementById('queryForm').addEventListener('submit', function() {
+    var input = document.getElementById('queryInput');
+    var sendBtn = document.getElementById('sendBtn');
+    var hero = document.getElementById('emptyHero');
+
+    if (!input.value.trim()) return false;
+
+    // Forward the sidebar's document selection (managed in base.html JS) so
+    // the backend can scope retrieval. Empty string = "search all docs".
+    var hidden = document.getElementById('documentIdsInput');
+    if (hidden && typeof selectedDocs !== 'undefined') {
+        hidden.value = (selectedDocs || []).join(',');
+    }
+
+    sendBtn.disabled = true;
+    if (hero) hero.style.display = 'none';
+
+    var chatArea = document.querySelector('.chat-area');
+    var wrapper = document.querySelector('.input-bar-wrapper');
+
+    var tempChat = document.createElement('div');
+    tempChat.className = 'chat-messages';
+    tempChat.innerHTML =
+        '<div class="chat-messages-inner">' +
+            '<div class="msg-user"><div class="msg-user-bubble">' + input.value + '</div></div>' +
+            '<div class="msg-ai"><div class="msg-ai-row">' +
+                '<div class="bot-avatar"><svg width="18" height="18" fill="none" stroke="white" stroke-width="2" viewBox="0 0 24 24"><path d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z"/></svg></div>' +
+                '<div class="msg-ai-card">' +
+                    '<div class="msg-ai-label"><svg width="14" height="14" fill="var(--success)" viewBox="0 0 16 16"><circle cx="8" cy="8" r="8"/></svg> Smart Doc Query</div>' +
+                    '<div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>' +
+                '</div>' +
+            '</div></div>' +
+        '</div>';
+    chatArea.insertBefore(tempChat, wrapper);
+});
+</script>
+{% endblock %}

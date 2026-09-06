@@ -1,0 +1,66 @@
+{% extends 'base.html' %}
+{% block body %}
+
+<div class="auth-page">
+
+    <!-- Left visual panel -->
+    <div class="auth-visual">
+        <div class="auth-visual-icon">
+            <svg width="64" height="64" fill="none" stroke="white" stroke-width="1.5" viewBox="0 0 24 24">
+                <path d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9z"/>
+                <path d="M9 16.5h6M9 13.5h4"/>
+            </svg>
+        </div>
+        <div class="auth-visual-title">Smart Doc Query</div>
+        <div class="auth-visual-subtitle">
+            Your AI-powered document assistant. Ask questions, get instant answers from your files.
+        </div>
+    </div>
+
+    <!-- Right form panel -->
+    <div class="auth-form-side">
+        <div class="auth-form-container">
+
+            <div class="auth-form-header">
+                <h2>Create account</h2>
+                <p>Get started with Smart Doc Query</p>
+            </div>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{% if category == 'error' %}danger{% else %}{{ category }}{% endif %}" style="margin-bottom: 16px;">
+                            <span>{{ message }}</span>
+                            <button class="alert-close" onclick="this.parentElement.remove()">&times;</button>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            <div class="auth-card">
+                <form method="POST">
+                    <div class="form-group">
+                        <label class="form-label">Username</label>
+                        <input type="text" name="username" class="form-control" placeholder="Choose a username" required autofocus>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Email</label>
+                        <input type="email" name="email" class="form-control" placeholder="you@example.com" required>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Password</label>
+                        <input type="password" name="password" class="form-control" placeholder="Create a password" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-full btn-lg" style="margin-top: 8px;">Create Account</button>
+                </form>
+            </div>
+
+            <div class="auth-footer">
+                Already have an account? <a href="{{ url_for('login') }}">Sign in</a>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+{% endblock %}
