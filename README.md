@@ -21,6 +21,15 @@ leaving your computer.
 
 ---
 
+## Screenshots
+
+| | |
+|---|---|
+| ![Answer with evidence](docs/screenshots/chat-answer.png) | ![Document viewer panel](docs/screenshots/document-viewer.png) |
+| Answers show confidence, source file and the matching passages. | Click a source to read the original beside the chat. |
+| ![Dark mode](docs/screenshots/dark-mode.png) | ![Sign in](docs/screenshots/login.png) |
+| Dark theme. | Sign in. |
+
 ## Features
 
 **Documents**
