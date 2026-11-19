@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+{% block body %}
+<div class="auth">
+    <aside class="auth-art">
+        <div class="auth-art-inner">
+            <div class="brand light">
+                <div class="brand-mark"><svg class="ico"><use href="#i-spark"/></svg></div>
+                <div class="brand-name">Smart Doc Query</div>
+            </div>
+            <h1>Ask your documents.<br>Get answers with sources.</h1>
+            <p>Upload PDFs, Word files and notes, then ask questions in plain English. Every answer points back to the exact page it came from.</p>
+            <ul class="feature-list">
+                <li><svg class="ico"><use href="#i-layers"/></svg><span><strong>Semantic search</strong> finds meaning, not just keywords.</span></li>
+                <li><svg class="ico"><use href="#i-pin"/></svg><span><strong>Source attribution</strong> with page numbers and excerpts.</span></li>
+                <li><svg class="ico"><use href="#i-shield"/></svg><span><strong>100% local.</strong> Your files never leave your computer.</span></li>
+            </ul>
+        </div>
+    </aside>
+
+    <section class="auth-pane">
+        <button type="button" class="icon-btn auth-theme" id="themeBtn" title="Toggle dark mode">
+            <svg class="ico theme-moon"><use href="#i-moon"/></svg>
+            <svg class="ico theme-sun"><use href="#i-sun"/></svg>
+        </button>
+        <div class="auth-box">
+            <div class="brand only-mobile-flex">
+                <div class="brand-mark"><svg class="ico"><use href="#i-spark"/></svg></div>
+                <div class="brand-name">Smart Doc Query</div>
+            </div>
+            {% block auth_content %}{% endblock %}
+        </div>
+    </section>
+</div>
+
+<div class="toasts auth-toasts" id="toasts">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+        <div class="toast toast-{{ 'danger' if category == 'error' else category }}">
+            <span>{{ message }}</span>
+            <button type="button" class="icon-btn sm" aria-label="Dismiss"><svg class="ico"><use href="#i-x"/></svg></button>
+        </div>
+        {% endfor %}
+    {% endwith %}
+</div>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+{% endblock %}

@@ -62,8 +62,77 @@ def extract_text_from_txt(filepath):
         return _clean_text(f.read())
 
 
+def extract_text_from_docx(filepath):
+    """Paragraphs and table cells of a .docx file, in reading order."""
+    import docx  # imported lazily so the app still starts without python-docx
+    document = docx.Document(filepath)
+    parts = [p.text for p in document.paragraphs if p.text.strip()]
+    for table in document.tables:
+        rows = [[c.text.strip() for c in row.cells] for row in table.rows]
+        if not rows:
+            continue
+        header = rows[0]
+        for row in rows[1:] if len(rows) > 1 else rows:
+            # "Waterfall. Use: Fixed requirements." reads better to the search
+            # than a bare "Waterfall | Fixed requirements" row.
+            pairs = [f'{h}: {c}' if h and len(rows) > 1 and i else c
+                     for i, (h, c) in enumerate(zip(header, row)) if c]
+            if pairs:
+                parts.append('. '.join(pairs) + '.')
+    return _clean_text('\n'.join(parts))
+
+
+def _mark_headings(text):
+    """End short unpunctuated lines (headings) with a full stop.
+
+    Plain-text and Word files put each paragraph on its own line, so a heading
+    would otherwise be glued onto the first sentence that follows it.
+    """
+    out = []
+    for line in text.split('\n'):
+        stripped = line.strip()
+        if stripped and stripped[-1] not in '.!?:;' and len(stripped.split()) <= 12:
+            stripped += '.'
+        out.append(stripped)
+    return '\n'.join(out)
+
+
+def extract_chunks(filepath, file_type):
+    """Return ``(page_count, [(page_number_or_None, chunk_text), ...])``."""
+    if file_type == 'pdf':
+        pages = extract_pages_from_pdf(filepath)
+        return count_pdf_pages(filepath), chunk_pages(pages)
+    if file_type == 'docx':
+        text = extract_text_from_docx(filepath)
+    else:  # txt / md
+        text = extract_text_from_txt(filepath)
+        if file_type == 'md':
+            text = _strip_markdown(text)
+    return 0, [(None, c) for c in chunk_text(_mark_headings(text))]
+
+
+def count_pdf_pages(filepath):
+    try:
+        with open(filepath, 'rb') as f:
+            return len(PyPDF2.PdfReader(f).pages)
+    except Exception:
+        return 0
+
+
+def _strip_markdown(text):
+    text = re.sub(r'```.*?```', ' ', text, flags=re.DOTALL)
+    text = re.sub(r'`([^`]*)`', r'\1', text)
+    text = re.sub(r'!\[[^\]]*\]\([^)]*\)', ' ', text)
+    text = re.sub(r'\[([^\]]+)\]\([^)]*\)', r'\1', text)
+    text = re.sub(r'(?m)^\s{0,3}#{1,6}\s*', '', text)
+    text = re.sub(r'(\*\*|__)(.*?)\1', r'\2', text)
+    return text
+
+
 def _split_sentences(text):
-    raw = re.split(r'(?<=[.?!])\s+', text.replace('\n', ' '))
+    # Don't break after list numbers such as "1." or "12." - otherwise short
+    # items of an inline numbered list are split apart and dropped.
+    raw = re.split(r'(?<=[.?!])(?<!\b\d\.)(?<!\b\d\d\.)\s+', text.replace('\n', ' '))
     return [s.strip() for s in raw if len(s.strip()) > 10]
 
 

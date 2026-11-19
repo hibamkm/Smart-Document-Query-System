@@ -1,7 +1,7 @@
 <h1 align="center">Smart Document Query System</h1>
 
 <p align="center">
-  <strong>Ask your own documents questions in plain English — and get answers with sources.</strong>
+  <strong>Ask your own documents questions in plain English and get answers with sources.</strong>
 </p>
 
 <p align="center">
@@ -12,408 +12,109 @@
   <img src="https://img.shields.io/badge/runs-100%25%20offline-success.svg" alt="Runs offline">
 </p>
 
-<p align="center">
-  <img src="docs/screenshots/chat-answer.png" alt="Asking a question and receiving a sourced answer" width="900">
-</p>
-
-Upload a PDF or text file, ask a question, and the system finds the passages that
-actually answer it — then quotes the answer back to you with the document and page
-it came from. Everything runs locally on your own machine: no API keys, no accounts,
-no data leaving your computer.
+Upload PDF, Word, text or Markdown files, ask a question, and the system finds the
+passages that answer it, then shows the answer with the document, page and the exact
+evidence it came from. Everything runs locally: no API keys, no accounts, no data
+leaving your computer.
 
 > MCA Final Year Project | University of Calicut | 2025-26
 
 ---
 
-## 🎯 Project Overview
+## Features
 
-An intelligent document querying system that allows users to upload PDF/TXT documents and ask questions in natural language. The system uses **Retrieval-Augmented Generation (RAG)** - combining semantic search with NLP to provide accurate, context-based answers extracted directly from uploaded documents.
+**Documents**
+- Upload several files at once (PDF, DOCX, TXT, Markdown), by clicking or dragging them anywhere onto the page
+- Per-document page count, section count and size; open the original file from the library
+- Choose which documents a question searches, or search them all
 
-**Key Features**:
-- 📄 Upload PDF and TXT documents
-- 🔍 Semantic search (understands meaning, not just keywords)
-- 🤖 AI-powered answer extraction using DistilBERT
-- 📍 Source attribution with page numbers
-- 💾 Multi-document support
-- 🔒 User authentication and session management
-- 📱 Clean, responsive web interface
-- 🌐 Offline capability (after initial setup)
+**Answers**
+- Semantic search (MiniLM embeddings, cosine similarity) combined with a small keyword bonus
+- Extractive answers from DistilBERT, restricted to the retrieved passages
+- Definition and list questions get special handling (bullet lists for "types of...", "steps in...")
+- **Confidence rating** on every answer, and a clear "not in your documents" reply instead of a guess
+- **Evidence panel**: the top passages with page number, match percentage and the question's key words highlighted
+- Copy an answer, give it a thumbs up or down, export the whole chat as Markdown
 
----
+**Accounts and security**
+- Passwords hashed with scrypt (older plain-text accounts are upgraded automatically on next login)
+- CSRF protection on every form and API call, login lockout after repeated failures
+- Every search, file download and delete is scoped to the signed-in user
+- Uploaded files are stored under random names; the secret key is generated per install
 
-## 🚀 Quick Start
+**Interface**
+- Redesigned chat interface with light and dark themes, a responsive layout for phones, and no page reloads while asking
+- Works offline with system fonts only
 
-### Prerequisites
-- Python 3.10+
-- 8GB RAM minimum
-- Internet connection (first run only - to download AI models)
+## Quick start
 
-### Installation
+Requires Python 3.10-3.12 (PyTorch 2.2 has no wheels for newer versions) and about 8 GB of RAM.
 
-1. **Clone the repository**
 ```bash
-git clone https://github.com/WebWurx/Smart-Document-Query-System.git
+git clone https://github.com/hibamkm/Smart-Document-Query-System.git
 cd Smart-Document-Query-System
-```
-
-2. **Create virtual environment**
-```bash
 python -m venv venv
-source venv/bin/activate  # Mac/Linux
-# OR
-venv\Scripts\activate  # Windows
-```
-
-3. **Install dependencies**
-```bash
+source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-```
-
-4. **Run the application**
-```bash
 python app.py
 ```
 
-5. **Open in browser**
-```
-http://localhost:5001
-```
+Open http://localhost:5001, create an account, add a document and ask a question.
 
-### First Run
-- AI models will download automatically (~330MB)
-- Takes ~2 minutes on fast internet
-- After first run, works completely offline!
+The first run downloads the AI models (about 330 MB). After that the app works offline.
 
----
+Optional environment variables: `PORT`, `SECRET_KEY`, `DATA_DIR` (where the database and uploads live), `FLASK_DEBUG=1`.
 
-## 📖 How It Works
-
-### The RAG Pipeline
+## How it works
 
 ```
-1. Document Upload
-   ├── Extract text from PDF/TXT
-   ├── Clean and process text
-   ├── Chunk into ~150-word sections
-   └── Generate vector embeddings
-
-2. Query Processing
-   ├── Convert question to embedding
-   ├── Find similar sections (cosine similarity)
-   ├── Retrieve top relevant chunks
-   └── Extract answer using QA model
-
-3. Answer Display
-   ├── Format and polish answer
-   ├── Show source document
-   ├── Display page numbers
-   └── Store in history
+Upload   extract text (PDF page by page) -> clean -> split into ~150-word chunks -> embed (384-dim) -> SQLite
+Ask      embed the question -> score every chunk of the user's documents (one matrix product)
+         -> boost definition / list / keyword matches -> keep the top passages
+Answer   definition rule, list extraction or DistilBERT span extraction -> polish
+         -> confidence + sources + evidence saved with the question
 ```
 
-### Example Usage
-
-**Upload your documents:**
-- Computer Science textbooks
-- Research papers
-- Course notes
-- Study materials
-
-**Ask questions naturally:**
-- "What is SSL?"
-- "Define encryption"
-- "What are the types of malware?"
-- "List the steps in SDLC"
-
-**Get precise answers with sources:**
-```
-Answer: SSL stands for Secure Sockets Layer. It is a
-cryptographic protocol designed to provide secure
-communication over a computer network.
-
-Source: network_security.pdf · p. 47
-```
-
----
-
-## 📸 Screenshots
-
-### Asking a question
-Answers are extracted from your own documents, with the source file shown beneath each response.
-
-![Chat answer](docs/screenshots/chat-answer.png)
-
-### Starting a new chat
-Documents and recent queries stay in the sidebar, so you can scope questions to specific files.
-
-![Empty state](docs/screenshots/empty-state.png)
-
-### Sign in / Register
-Each user gets their own private document library and query history.
-
-<p align="center">
-  <img src="docs/screenshots/login.png" alt="Login screen" width="49%">
-  <img src="docs/screenshots/register.png" alt="Registration screen" width="49%">
-</p>
-
----
-
-## 🛠️ Technology Stack
-
-### Backend
-- **Python 3.12** - Core language
-- **Flask 3.0** - Web framework
-- **SQLite** - Database
-- **PyPDF2** - PDF text extraction
-
-### AI/ML
-- **sentence-transformers** - Semantic embeddings
-- **transformers (HuggingFace)** - QA model (DistilBERT)
-- **PyTorch** - Deep learning framework
-- **scikit-learn** - Cosine similarity
-- **NumPy** - Vector operations
-
-### Frontend
-- **HTML5/CSS3** - Structure and styling
-- **Bootstrap 5** - Responsive UI
-- **JavaScript** - Interactivity
-
----
-
-## 📊 System Architecture
+## Project structure
 
 ```
-┌─────────────────────────────────────┐
-│     User Interface (Web Browser)     │
-└──────────────┬──────────────────────┘
-               │
-┌──────────────▼──────────────────────┐
-│        Flask Application             │
-│  ┌──────────┐  ┌─────────────────┐ │
-│  │ Routes & │  │ Document        │ │
-│  │ Sessions │  │ Processing      │ │
-│  └──────────┘  └─────────────────┘ │
-└──────────────┬──────────────────────┘
-               │
-┌──────────────▼──────────────────────┐
-│          RAG Engine                  │
-│  ┌──────────────┐  ┌─────────────┐ │
-│  │ Embeddings   │  │ QA Model    │ │
-│  │ (MiniLM)     │  │ (DistilBERT)│ │
-│  └──────────────┘  └─────────────┘ │
-└──────────────┬──────────────────────┘
-               │
-┌──────────────▼──────────────────────┐
-│      Database (SQLite)               │
-│  ┌─────┐ ┌─────────┐ ┌──────────┐  │
-│  │Users│ │Documents│ │Sections  │  │
-│  └─────┘ └─────────┘ └──────────┘  │
-└─────────────────────────────────────┘
+app.py                 Flask routes, auth, CSRF, JSON API
+config.py              Settings (paths, limits, secret key)
+database.py            SQLite schema and automatic migrations
+document_processor.py  PDF / DOCX / TXT / MD extraction and chunking
+retrieval.py           Embeddings, ranking, answer generation
+templates/             base, auth (login/register), chat page
+static/                style.css (design system), app.js (shell), chat.js (chat)
 ```
 
----
+## Known limitations
 
-## 📁 Project Structure
+- Scanned PDFs need OCR, which is not implemented
+- Images and diagrams are ignored; tables in PDFs may extract badly (DOCX tables are supported)
+- Answers are extracted from your text, not generated, so very open questions ("summarize this") work poorly
+- Sessions, login lockout counters and the model run in a single process; use a proper WSGI server and database to deploy publicly
 
-```
-Smart-Document-Query-System/
-├── app.py                    # Flask routes and controllers
-├── config.py                 # Configuration
-├── database.py               # Database operations
-├── document_processor.py     # PDF/TXT processing
-├── retrieval.py              # RAG engine
-├── requirements.txt          # Dependencies
-├── PROJECT_DOCUMENTATION.md  # Detailed technical docs
-├── CODE_AUDIT.md            # Code analysis report
-├── smart_doc.db             # SQLite database
-├── uploads/                 # Document storage
-├── static/                  # CSS, JS, images
-└── templates/               # HTML templates
-    ├── register.html
-    ├── login.html
-    ├── query.html
-    └── answer.html
-```
+## Roadmap
 
----
+- [ ] OCR for scanned PDFs
+- [ ] Summaries and multi-turn follow-up questions
+- [ ] Stronger multilingual embedding model
+- [ ] Cloud deployment
 
-## 🎓 Key Features Explained
+## Documentation
 
-### 1. Semantic Search
-Unlike Ctrl+F which matches exact keywords, our system understands **meaning**:
-- "What is SSL?" matches "Secure Sockets Layer is a protocol..."
-- Uses 384-dimensional vector embeddings
-- Cosine similarity finds semantically related content
+[PROJECT_DOCUMENTATION.md](PROJECT_DOCUMENTATION.md) has the detailed technical write-up (schema, algorithms, testing). It was written for the first version, so check it against this README before submitting.
 
-### 2. Answer Extraction
-Uses DistilBERT QA model trained on SQuAD dataset:
-- Understands question context
-- Extracts precise answer spans
-- Post-processing for clean formatting
+## License
 
-### 3. Query Type Detection
-Automatically detects and optimizes for:
-- **Definitions**: "What is X?" → Returns concise definition
-- **Lists**: "What are the types of X?" → Returns bullet points
-- **General**: Other questions → Extracts relevant answer
+Released under the [MIT License](LICENSE).
 
-### 4. Source Attribution
-Every answer shows:
-- Document name
-- Page numbers where answer was found
-- Builds trust and allows verification
+## Author
 
----
+**Hiba**, MCA, University of Calicut, 2025-26
 
-## 📈 Performance
+## References
 
-Tested on MacBook (8GB RAM):
-- **PDF Upload (10 pages)**: ~3 seconds
-- **Query Processing**: ~2 seconds
-- **Model Initialization**: ~5 seconds (first run only)
-- **Accuracy**: 84% on test set (50 questions)
-
----
-
-## 🔐 Security Note
-
-**Current Implementation**: Plain text password storage
-- ⚠️ Suitable for local/demo use only
-- ⚠️ NOT production-ready
-
-**For Production**: Implement password hashing
-```python
-from werkzeug.security import generate_password_hash, check_password_hash
-```
-
----
-
-## 🎯 Use Cases
-
-### Students
-- Quick lookup in textbooks
-- Exam preparation
-- Research paper analysis
-
-### Professionals
-- Legal document search
-- Technical documentation
-- Business report analysis
-
-### Researchers
-- Literature review
-- Cross-document comparison
-- Citation finding
-
----
-
-## 🚧 Future Enhancements
-
-### Planned Features
-- [ ] Multi-file upload (drag & drop)
-- [ ] Password hashing
-- [ ] Export Q&A as PDF
-- [ ] Document preview
-- [ ] Multi-language support
-- [ ] Image/Table extraction (OCR)
-- [ ] Conversation history (multi-turn)
-
-### Long-term Vision
-- [ ] Cloud deployment (AWS/Azure)
-- [ ] Mobile app (React Native)
-- [ ] Real-time collaboration
-- [ ] Advanced analytics dashboard
-- [ ] Custom model fine-tuning
-
----
-
-## 🐛 Known Limitations
-
-1. **PDF Tables**: Tables may not extract correctly (text-based PDFs work best)
-2. **Images**: Images and diagrams are ignored (text only)
-3. **Very large PDFs**: 100+ pages may be slow to process
-4. **Scanned PDFs**: Require OCR (not currently implemented)
-5. **Password-protected PDFs**: Not supported
-
----
-
-## 📚 Documentation
-
-- **[PROJECT_DOCUMENTATION.md](PROJECT_DOCUMENTATION.md)** - Complete technical documentation (60+ pages)
-  - Detailed algorithm explanations
-  - Database schema with ER diagrams
-  - Implementation details
-  - Testing results
-  - Academic references
-
-- **[CODE_AUDIT.md](CODE_AUDIT.md)** - Code complexity analysis
-  - File-by-file review
-  - Simplification recommendations
-  - Best practices
-
----
-
-## 🤝 Contributing
-
-This is an academic project for MCA coursework. Feedback and suggestions welcome!
-
-### How to Report Issues
-1. Check existing issues
-2. Create new issue with:
-   - Clear description
-   - Steps to reproduce
-   - Expected vs actual behavior
-   - Screenshots if applicable
-
----
-
-## 📝 License
-
-Released under the [MIT License](LICENSE) — free to use, modify, and distribute,
-including commercially, provided the copyright notice is retained.
-
-Originally built as academic coursework at the University of Calicut. If you use
-it in your own work, a link back is appreciated but not required.
-
----
-
-## 👤 Author
-
-**Hiba**
-MCA Student
-University of Calicut
-Academic Year: 2025-26
-
----
-
-## 🙏 Acknowledgments
-
-- **Project Guide**: For valuable guidance and feedback
-- **MCA Faculty**: For comprehensive curriculum
-- **Classmates**: For testing and feedback
-- **Open Source Community**: For amazing libraries
-  - Hugging Face Transformers
-  - Sentence Transformers
-  - Flask
-  - PyPDF2
-
----
-
-## 📞 Contact
-
-For questions or feedback about this project:
-- GitHub Issues: [Create an issue](https://github.com/WebWurx/Smart-Document-Query-System/issues)
-- Email: [Your university email if you want to add]
-
----
-
-## ⭐ References
-
-1. Lewis et al. (2020) - "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks"
-2. Devlin et al. (2018) - "BERT: Pre-training of Deep Bidirectional Transformers"
-3. Reimers & Gurevych (2019) - "Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks"
-
----
-
-**Made with ❤️ for MCA Final Year Project**
-
-*Last Updated: June 2026*
+1. Lewis et al. (2020), "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks"
+2. Devlin et al. (2018), "BERT: Pre-training of Deep Bidirectional Transformers"
+3. Reimers & Gurevych (2019), "Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks"

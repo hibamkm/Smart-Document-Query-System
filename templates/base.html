@@ -3,412 +3,228 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Doc Query</title>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>{% block title %}Smart Doc Query{% endblock %}</title>
+    <script>
+        // Apply the saved theme before first paint to avoid a flash.
+        (function () {
+            try {
+                var t = localStorage.getItem('theme');
+                if (!t) t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+                document.documentElement.setAttribute('data-theme', t);
+            } catch (e) { document.documentElement.setAttribute('data-theme', 'light'); }
+        })();
+    </script>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
 
+<!-- Icon sprite -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+        <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+        <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></symbol>
+        <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></symbol>
+        <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v5M14 11v5"/></symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
+        <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+        <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></symbol>
+        <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v12M7 11l5 5 5-5M4 20h16"/></symbol>
+        <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h9"/></symbol>
+        <symbol id="i-up" viewBox="0 0 24 24"><path d="M7 11l4-8a2 2 0 0 1 3 2v4h5a2 2 0 0 1 2 2l-1 7a2 2 0 0 1-2 2H7zM7 11H3v9h4"/></symbol>
+        <symbol id="i-down" viewBox="0 0 24 24"><path d="M17 13l-4 8a2 2 0 0 1-3-2v-4H5a2 2 0 0 1-2-2l1-7a2 2 0 0 1 2-2h12zM17 13h4V4h-4"/></symbol>
+        <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></symbol>
+        <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></symbol>
+        <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h4M16 8l4 4-4 4M20 12H9"/></symbol>
+        <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></symbol>
+        <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+        <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7z"/></symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.2 8-8 9-4.8-1-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/></symbol>
+        <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></symbol>
+        <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5zM3 13l9 5 9-5"/></symbol>
+        <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
+        <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></symbol>
+    </defs>
+</svg>
+
 {% block body %}
 {% if session.get('user_id') %}
 
-<div class="app-layout" id="appLayout">
+<div class="app" id="app">
+    <div class="scrim" id="scrim"></div>
 
-    <!-- ── Sidebar ────────────────────────────────────────── -->
-    <aside class="sidebar">
-
-        <!-- Scrollable area -->
-        <div class="sidebar-scroll">
-            <div class="sidebar-header">
-                <span class="sidebar-brand">Smart Doc Query</span>
-                <span class="sidebar-brand-sub">AI Document Assistant</span>
+    <!-- ── Sidebar ───────────────────────────────────── -->
+    <aside class="sidebar" id="sidebar">
+        <div class="brand">
+            <div class="brand-mark"><svg class="ico"><use href="#i-spark"/></svg></div>
+            <div>
+                <div class="brand-name">Smart Doc Query</div>
+                <div class="brand-sub">Ask your documents</div>
             </div>
+        </div>
 
-            <a href="{{ url_for('query') }}" class="sidebar-new-chat">
-                <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="8" y1="3" x2="8" y2="13"/><line x1="3" y1="8" x2="13" y2="8"/></svg>
-                New Chat
-            </a>
+        <button type="button" class="btn btn-primary btn-block" data-open-upload>
+            <svg class="ico"><use href="#i-plus"/></svg> Add documents
+        </button>
 
-            <!-- Documents -->
-            <div class="sidebar-section">
-                <div class="sidebar-label-row">
-                    <div class="sidebar-label">Documents</div>
-                    <button type="button" class="sidebar-add-btn" title="Upload document" onclick="openUploadModal()">+</button>
+        <div class="side-scroll">
+            <section class="side-section">
+                <div class="side-title">
+                    <span>Library <em>{{ sidebar_docs|length }}</em></span>
+                    {% if sidebar_docs %}<button type="button" class="link-btn" id="selectAllBtn">All</button>{% endif %}
                 </div>
+
                 {% if sidebar_docs %}
+                <ul class="doc-list" id="docList">
                     {% for doc in sidebar_docs %}
-                    <div class="sidebar-item"
-                         data-doc-id="{{ doc['document_id'] }}"
-                         data-doc-name="{{ doc['document_name'] }}"
-                         data-doc-type="{{ doc['file_type'] }}"
-                         onclick="toggleDoc({{ doc['document_id'] }})">
-                        <span class="sidebar-item-icon {{ doc['file_type'] }}">
-                            {% if doc['file_type'] == 'pdf' %}
-                                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M4 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4.5L9.5 0H4zm5.5 1.5v3h3L9.5 1.5zM5 8h6v1H5V8zm0 2h6v1H5v-1zm0 2h4v1H5v-1z"/></svg>
-                            {% else %}
-                                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M4 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4.5L9.5 0H4zm5.5 1.5v3h3L9.5 1.5zM5 8h6v1H5V8zm0 2h4v1H5v-1z"/></svg>
-                            {% endif %}
+                    <li class="doc" data-doc-id="{{ doc['document_id'] }}" tabindex="0" role="checkbox" aria-checked="false"
+                        title="Click to include or exclude this document from searches">
+                        <span class="doc-badge t-{{ doc['file_type'] }}">{{ doc['file_type']|upper }}</span>
+                        <span class="doc-info">
+                            <span class="doc-name">{{ doc['document_name'] }}</span>
+                            <span class="doc-meta">
+                                {% if doc['page_count'] %}{{ doc['page_count'] }} pg &middot; {% endif %}{{ doc['section_count'] }} sections{% if doc['size_bytes'] %} &middot; {{ human_size(doc['size_bytes']) }}{% endif %}
+                            </span>
                         </span>
-                        <span class="sidebar-item-text">{{ doc['document_name'] }}</span>
-                        <span class="selection-dot"></span>
-                        <span class="sidebar-item-meta">{{ doc['file_type']|upper }}</span>
-                        <form class="sidebar-item-delete-form"
-                              method="POST"
-                              action="{{ url_for('delete_document', document_id=doc['document_id']) }}"
-                              onclick="event.stopPropagation();"
-                              onsubmit="return confirm('Delete &quot;{{ doc['document_name'] }}&quot;? This cannot be undone.');">
-                            <button type="submit" class="sidebar-item-delete" title="Delete document" aria-label="Delete document">&times;</button>
-                        </form>
-                    </div>
+                        <span class="doc-actions">
+                            <a class="icon-btn sm" href="{{ url_for('document_file', document_id=doc['document_id']) }}" target="_blank" rel="noopener" title="View document" data-view data-doc-id="{{ doc['document_id'] }}" data-name="{{ doc['document_name'] }}" data-type="{{ doc['file_type'] }}" onclick="event.stopPropagation()"><svg class="ico"><use href="#i-external"/></svg></a>
+                            <form method="POST" action="{{ url_for('delete_document', document_id=doc['document_id']) }}"
+                                  onclick="event.stopPropagation()"
+                                  data-confirm="Delete &quot;{{ doc['document_name'] }}&quot; and any answers that rely on it?">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="icon-btn sm danger" title="Delete document"><svg class="ico"><use href="#i-trash"/></svg></button>
+                            </form>
+                        </span>
+                        <span class="doc-check"><svg class="ico"><use href="#i-check"/></svg></span>
+                    </li>
                     {% endfor %}
+                </ul>
+                <p class="side-hint" id="scopeHint">Searching all documents.</p>
                 {% else %}
-                    <div class="sidebar-item" style="color: var(--sidebar-muted); font-size: 13px; cursor: default;">
-                        No documents yet
-                    </div>
+                <div class="side-empty">
+                    <svg class="ico"><use href="#i-file"/></svg>
+                    <span>No documents yet.<br>Upload a PDF, DOCX, TXT or Markdown file.</span>
+                </div>
                 {% endif %}
-            </div>
+            </section>
 
-            <!-- Recent Queries -->
-            <div class="sidebar-section">
-                <div class="sidebar-label">Recent Queries</div>
+            <section class="side-section">
+                <div class="side-title"><span>Recent questions</span></div>
                 {% if sidebar_queries %}
+                <div class="search-box">
+                    <svg class="ico"><use href="#i-search"/></svg>
+                    <input type="search" id="historyFilter" placeholder="Search history" autocomplete="off">
+                </div>
+                <ul class="hist-list" id="histList">
                     {% for q in sidebar_queries %}
-                    <div class="sidebar-item {% if request.endpoint == 'answer' and request.view_args.get('query_id') == q['query_id'] %}active{% endif %}"
-                         onclick="window.location.href='{{ url_for('answer', query_id=q['query_id']) }}'">
-                        <span class="sidebar-item-icon" style="color: var(--sidebar-muted);">
-                            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6l-4 3V2z"/></svg>
-                        </span>
-                        <span class="sidebar-item-text">{{ q['query_text']|truncate(35) }}</span>
-                        <form class="sidebar-item-delete-form"
-                              method="POST"
-                              action="{{ url_for('delete_query', query_id=q['query_id']) }}"
-                              onclick="event.stopPropagation();"
-                              onsubmit="return confirm('Delete this query? This cannot be undone.');">
-                            <button type="submit" class="sidebar-item-delete" title="Delete query" aria-label="Delete query">&times;</button>
+                    <li class="hist" data-text="{{ q['query_text']|lower }}">
+                        <a href="{{ url_for('query') }}#q-{{ q['query_id'] }}" data-qid="{{ q['query_id'] }}">
+                            <svg class="ico"><use href="#i-chat"/></svg>
+                            <span>{{ q['query_text']|truncate(46) }}</span>
+                        </a>
+                        <form method="POST" action="{{ url_for('delete_query', query_id=q['query_id']) }}" data-confirm="Delete this question?">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="icon-btn sm danger" title="Delete"><svg class="ico"><use href="#i-x"/></svg></button>
                         </form>
-                    </div>
+                    </li>
                     {% endfor %}
-                    <a href="{{ url_for('query') }}" class="sidebar-view-all">View all chats &#8250;</a>
+                </ul>
                 {% else %}
-                    <div class="sidebar-item" style="color: var(--sidebar-muted); font-size: 13px; cursor: default;">
-                        No queries yet
-                    </div>
+                <p class="side-hint">Your questions will appear here.</p>
                 {% endif %}
-            </div>
+            </section>
         </div>
 
-        <!-- User profile -->
-        <div class="sidebar-user">
-            <div class="sidebar-user-avatar">{{ session['username'][0]|upper }}</div>
-            <div class="sidebar-user-info">
-                <div class="sidebar-user-name">{{ session['username'] }}</div>
-                <div class="sidebar-user-email">{{ session.get('email', '') }}</div>
+        <div class="side-foot">
+            <div class="avatar">{{ session['username'][0]|upper }}</div>
+            <div class="who">
+                <strong>{{ session['username'] }}</strong>
+                <span>{{ session.get('email', '') }}</span>
             </div>
+            <form method="POST" action="{{ url_for('logout') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="icon-btn" title="Sign out"><svg class="ico"><use href="#i-logout"/></svg></button>
+            </form>
         </div>
-
-        <!-- Fixed credit -->
-        <div class="sidebar-credit">Made by Hiba MK</div>
     </aside>
 
-    <!-- ── Main Content ───────────────────────────────────── -->
-    <main class="main-content">
-
-        <!-- Top bar -->
-        <div class="topbar">
-            <button class="sidebar-toggle" id="sidebarToggle" aria-label="Toggle sidebar">
-                <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="17" y2="6"/><line x1="3" y1="10" x2="17" y2="10"/><line x1="3" y1="14" x2="17" y2="14"/></svg>
-            </button>
-            <div class="topbar-right">
-                <span class="topbar-user">{{ session['username'] }}</span>
-                <div class="topbar-settings">
-                    <button type="button" class="topbar-settings-btn" id="settingsBtn"
-                            onclick="toggleSettingsMenu()" aria-label="Settings" title="Settings">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                             stroke="currentColor" stroke-width="2"
-                             stroke-linecap="round" stroke-linejoin="round">
-                            <circle cx="12" cy="12" r="3"/>
-                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-                        </svg>
-                    </button>
-                    <div class="topbar-settings-menu" id="settingsMenu">
-                        <form method="POST" action="{{ url_for('clear_history') }}"
-                              onsubmit="return confirm('Clear all chat history? This cannot be undone.');">
-                            <button type="submit" class="topbar-settings-item">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                                     stroke="currentColor" stroke-width="2"
-                                     stroke-linecap="round" stroke-linejoin="round">
-                                    <polyline points="3 6 5 6 21 6"/>
-                                    <path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/>
-                                    <path d="M10 11v6"/>
-                                    <path d="M14 11v6"/>
-                                </svg>
-                                Clear chat history
-                            </button>
-                        </form>
-                    </div>
-                </div>
-                <a class="topbar-logout" href="{{ url_for('logout') }}">Logout</a>
+    <!-- ── Main ──────────────────────────────────────── -->
+    <main class="main">
+        <header class="topbar">
+            <button type="button" class="icon-btn only-mobile" id="menuBtn" title="Menu"><svg class="ico"><use href="#i-menu"/></svg></button>
+            <div class="topbar-title">{% block page_title %}Chat{% endblock %}</div>
+            <div class="topbar-actions">
+                <a class="btn btn-ghost btn-sm" href="{{ url_for('export_history') }}" title="Download all questions and answers as Markdown">
+                    <svg class="ico"><use href="#i-download"/></svg><span class="hide-sm">Export</span>
+                </a>
+                <form method="POST" action="{{ url_for('clear_history') }}" data-confirm="Clear all chat history? This cannot be undone.">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-ghost btn-sm" title="Clear chat history"><svg class="ico"><use href="#i-trash"/></svg><span class="hide-sm">Clear</span></button>
+                </form>
+                <button type="button" class="icon-btn" id="themeBtn" title="Toggle dark mode">
+                    <svg class="ico theme-moon"><use href="#i-moon"/></svg>
+                    <svg class="ico theme-sun"><use href="#i-sun"/></svg>
+                </button>
             </div>
-        </div>
+        </header>
 
-        <!-- Flash messages -->
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-            <div class="flash-messages">
+        <div class="toasts" id="toasts">
+            {% with messages = get_flashed_messages(with_categories=true) %}
                 {% for category, message in messages %}
-                    <div class="alert alert-{% if category == 'error' %}danger{% else %}{{ category }}{% endif %}">
-                        <span>{{ message }}</span>
-                        <button class="alert-close" onclick="this.parentElement.remove()">&times;</button>
-                    </div>
+                <div class="toast toast-{{ 'danger' if category == 'error' else category }}">
+                    <span>{{ message }}</span>
+                    <button type="button" class="icon-btn sm" aria-label="Dismiss"><svg class="ico"><use href="#i-x"/></svg></button>
+                </div>
                 {% endfor %}
-            </div>
-            {% endif %}
-        {% endwith %}
-
-        <div class="page-content" id="pageContent">
-            {% block content %}{% endblock %}
+            {% endwith %}
         </div>
 
+        {% block content %}{% endblock %}
     </main>
+    <!-- ── Document viewer (slides in beside the chat) ── -->
+    <aside class="viewer" id="viewer" aria-hidden="true" aria-label="Document viewer">
+        <header class="viewer-head">
+            <div class="viewer-title"><span class="doc-badge sm" id="viewerBadge"></span><strong id="viewerName"></strong></div>
+            <div class="viewer-actions">
+                <a class="icon-btn sm" id="viewerNewTab" target="_blank" rel="noopener" title="Open in a new tab"><svg class="ico"><use href="#i-external"/></svg></a>
+                <a class="icon-btn sm" id="viewerDownload" title="Download"><svg class="ico"><use href="#i-download"/></svg></a>
+                <button type="button" class="icon-btn sm" id="viewerClose" title="Close (Esc)"><svg class="ico"><use href="#i-x"/></svg></button>
+            </div>
+        </header>
+        <div class="viewer-body" id="viewerBody"></div>
+    </aside>
+
 </div>
 
-<!-- ── Upload Modal (global) ───────────────────────────────── -->
-<div class="upload-modal" id="uploadModal" onclick="if(event.target===this)closeUploadModal()">
-    <div class="upload-modal-sheet">
-        <div class="upload-modal-header">
-            <div class="upload-modal-title">Upload document</div>
-            <button type="button" class="upload-modal-close" onclick="closeUploadModal()" aria-label="Close">&times;</button>
+<!-- ── Upload modal ────────────────────────────────── -->
+<div class="modal" id="uploadModal" aria-hidden="true">
+    <div class="modal-card" role="dialog" aria-labelledby="uploadTitle">
+        <div class="modal-head">
+            <h2 id="uploadTitle">Add documents</h2>
+            <button type="button" class="icon-btn" data-close-upload aria-label="Close"><svg class="ico"><use href="#i-x"/></svg></button>
         </div>
-        <form method="POST" action="{{ url_for('upload') }}" enctype="multipart/form-data" id="modalUploadForm">
-            <div class="dropzone" id="modalDropzone" onclick="document.getElementById('modalFileInput').click()">
-                <div class="dropzone-icon">
-                    <svg width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24" style="color: var(--primary);">
-                        <path d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"/>
-                    </svg>
-                </div>
-                <div class="dropzone-text">Drop your file here or click to browse</div>
-                <div class="dropzone-hint">Supports PDF and TXT files</div>
-                <input type="file" id="modalFileInput" name="file" accept=".pdf,.txt" required>
-                <div class="dropzone-filename" id="modalDropzoneFilename"></div>
+        <form method="POST" action="{{ url_for('upload') }}" enctype="multipart/form-data" id="uploadForm">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="dropzone" id="dropzone" for="fileInput">
+                <svg class="ico xl"><use href="#i-upload"/></svg>
+                <strong>Drop files here or click to browse</strong>
+                <span>PDF, DOCX, TXT or Markdown &middot; up to {{ 25 }} MB each &middot; several at once</span>
+                <input type="file" id="fileInput" name="files" accept=".pdf,.docx,.txt,.md" multiple>
+            </label>
+            <ul class="file-list" id="fileList"></ul>
+            <div class="modal-foot">
+                <span class="privacy"><svg class="ico"><use href="#i-shield"/></svg> Processed locally on this machine</span>
+                <button type="submit" class="btn btn-primary" id="uploadBtn" disabled>Upload &amp; index</button>
             </div>
-            <div class="upload-progress" id="modalUploadProgress">
-                <div class="progress-bar-track"><div class="progress-bar-fill"></div></div>
-                <div class="upload-status-text">Processing document...</div>
-            </div>
-            <button type="submit" id="modalUploadBtn" class="btn btn-primary btn-full" style="margin-top: 16px; display: none;">
-                Upload &amp; Process
-            </button>
         </form>
     </div>
 </div>
 
-<script>
-function openUploadModal() {
-    var m = document.getElementById('uploadModal');
-    if (m) m.classList.add('open');
-}
-function closeUploadModal() {
-    var m = document.getElementById('uploadModal');
-    if (m) m.classList.remove('open');
-}
-(function(){
-    var fi = document.getElementById('modalFileInput');
-    var dz = document.getElementById('modalDropzone');
-    var fn = document.getElementById('modalDropzoneFilename');
-    var btn = document.getElementById('modalUploadBtn');
-    var form = document.getElementById('modalUploadForm');
-    var prog = document.getElementById('modalUploadProgress');
-    if (!fi) return;
-    fi.addEventListener('change', function() {
-        if (this.files.length > 0) {
-            fn.textContent = this.files[0].name;
-            fn.classList.add('visible');
-            btn.style.display = 'inline-flex';
-        }
-    });
-    ['dragover','dragenter'].forEach(function(e){
-        dz.addEventListener(e, function(ev){ev.preventDefault(); dz.classList.add('dragover');});
-    });
-    ['dragleave','drop'].forEach(function(e){
-        dz.addEventListener(e, function(ev){ev.preventDefault(); dz.classList.remove('dragover');});
-    });
-    dz.addEventListener('drop', function(ev){
-        if (ev.dataTransfer.files.length > 0) {
-            fi.files = ev.dataTransfer.files;
-            fi.dispatchEvent(new Event('change'));
-        }
-    });
-    form.addEventListener('submit', function(){
-        btn.disabled = true;
-        prog.classList.add('visible');
-    });
-    document.addEventListener('keydown', function(e){
-        if (e.key === 'Escape') closeUploadModal();
-    });
-})();
-</script>
+<div class="drop-overlay" id="dropOverlay"><svg class="ico xl"><use href="#i-upload"/></svg>Drop to add documents</div>
 
-<!-- ── Document Selection JS ──────────────────────────────── -->
-<script>
-// All documents available to this user
-const ALL_DOCS = [
-    {% for doc in sidebar_docs %}
-    { id: {{ doc['document_id'] }}, name: {{ doc['document_name']|tojson }}, type: {{ doc['file_type']|tojson }} }{% if not loop.last %},{% endif %}
-    {% endfor %}
-];
-
-// Selection state (persists across pages via sessionStorage)
-let selectedDocs = JSON.parse(sessionStorage.getItem('selectedDocs') || '[]');
-// Clean out any IDs that no longer exist
-const validIds = ALL_DOCS.map(d => d.id);
-selectedDocs = selectedDocs.filter(id => validIds.includes(id));
-
-// Auto-select a freshly uploaded doc when the upload route redirects with
-// ?just_uploaded=<id>. Strip the query param afterwards so a refresh doesn't
-// re-trigger or persist in shareable URLs.
-(function() {
-    var u = new URL(window.location.href);
-    var justId = parseInt(u.searchParams.get('just_uploaded'), 10);
-    if (justId && validIds.includes(justId) && !selectedDocs.includes(justId)) {
-        selectedDocs.push(justId);
-        sessionStorage.setItem('selectedDocs', JSON.stringify(selectedDocs));
-    }
-    if (u.searchParams.has('just_uploaded')) {
-        u.searchParams.delete('just_uploaded');
-        history.replaceState({}, '', u.pathname + (u.search || '') + u.hash);
-    }
-})();
-
-function saveSelection() {
-    sessionStorage.setItem('selectedDocs', JSON.stringify(selectedDocs));
-}
-
-function toggleDoc(docId) {
-    const idx = selectedDocs.indexOf(docId);
-    if (idx === -1) selectedDocs.push(docId);
-    else selectedDocs.splice(idx, 1);
-    saveSelection();
-    updateDocUI();
-}
-
-function removeDoc(docId) {
-    selectedDocs = selectedDocs.filter(id => id !== docId);
-    saveSelection();
-    updateDocUI();
-}
-
-function clearAllDocs() {
-    selectedDocs = [];
-    saveSelection();
-    updateDocUI();
-}
-
-function docIcon(type) {
-    if (type === 'pdf') {
-        return '<svg width="14" height="14" viewBox="0 0 16 16" fill="#EF4444"><path d="M4 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4.5L9.5 0H4zm5.5 1.5v3h3L9.5 1.5z"/></svg>';
-    }
-    return '<svg width="14" height="14" viewBox="0 0 16 16" fill="#94A3B8"><path d="M4 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V4.5L9.5 0H4zm5.5 1.5v3h3L9.5 1.5zM5 8h6v1H5V8zm0 2h4v1H5v-1z"/></svg>';
-}
-
-function updateDocUI() {
-    // 1. Update sidebar items
-    document.querySelectorAll('.sidebar-item[data-doc-id]').forEach(function(el) {
-        var id = parseInt(el.dataset.docId);
-        if (selectedDocs.includes(id)) {
-            el.classList.add('selected');
-        } else {
-            el.classList.remove('selected');
-        }
-    });
-
-    // 2. Update document selector checkboxes (in input bar)
-    document.querySelectorAll('.doc-selector-item').forEach(function(el) {
-        var id = parseInt(el.dataset.docId);
-        if (selectedDocs.includes(id)) {
-            el.classList.add('checked');
-        } else {
-            el.classList.remove('checked');
-        }
-    });
-
-    // 3. Update doc-selector button label + count badge
-    var label = document.getElementById('docSelectorLabel');
-    var count = document.getElementById('docSelectorCount');
-    var toggleAll = document.getElementById('docSelectorToggleAll');
-    if (label) {
-        var total = ALL_DOCS.length;
-        if (total === 0) {
-            label.textContent = 'Upload documents';
-            if (count) { count.hidden = true; }
-        } else if (selectedDocs.length === 0) {
-            label.textContent = 'All documents';
-            if (count) { count.hidden = true; }
-        } else {
-            label.textContent = 'Documents';
-            if (count) {
-                count.textContent = selectedDocs.length + ' of ' + total;
-                count.hidden = false;
-            }
-        }
-    }
-    if (toggleAll) {
-        if (selectedDocs.length === 0) toggleAll.classList.add('active');
-        else toggleAll.classList.remove('active');
-    }
-}
-
-// Doc-selector button: with no docs uploaded, skip the dropdown and open the
-// upload modal directly so users hit zero dead-ends.
-function handleDocSelectorClick() {
-    if (ALL_DOCS.length === 0) {
-        openUploadModal();
-    } else {
-        toggleDocSelector();
-    }
-}
-
-function filterDocSelector(needle) {
-    var q = (needle || '').toLowerCase().trim();
-    document.querySelectorAll('.doc-selector-item').forEach(function(el) {
-        var name = el.dataset.docName || '';
-        el.style.display = (!q || name.indexOf(q) !== -1) ? '' : 'none';
-    });
-}
-
-function toggleDocSelector() {
-    var dropdown = document.getElementById('docSelectorDropdown');
-    if (dropdown) dropdown.classList.toggle('open');
-}
-
-// Close doc selector when clicking outside
-document.addEventListener('click', function(e) {
-    var dropdown = document.getElementById('docSelectorDropdown');
-    var btn = document.querySelector('.doc-selector-btn');
-    if (dropdown && !dropdown.contains(e.target) && btn && !btn.contains(e.target)) {
-        dropdown.classList.remove('open');
-    }
-});
-
-// Sidebar toggle
-document.getElementById('sidebarToggle').addEventListener('click', function() {
-    document.getElementById('appLayout').classList.toggle('sidebar-collapsed');
-});
-
-// Settings menu (topbar gear icon)
-function toggleSettingsMenu() {
-    var m = document.getElementById('settingsMenu');
-    if (m) m.classList.toggle('open');
-}
-document.addEventListener('click', function(e) {
-    var m = document.getElementById('settingsMenu');
-    var btn = document.getElementById('settingsBtn');
-    if (m && !m.contains(e.target) && btn && !btn.contains(e.target)) {
-        m.classList.remove('open');
-    }
-});
-
-// Initialize
-updateDocUI();
-</script>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+{% block scripts %}{% endblock %}
 
 {% endif %}
 {% endblock %}

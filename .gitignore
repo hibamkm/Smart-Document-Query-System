@@ -50,3 +50,4 @@ hf_cache/
 # Logs
 *.log
 logs/
+.secret_key

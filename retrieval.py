@@ -9,7 +9,6 @@ import re
 import pickle
 import numpy as np
 from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
 from transformers import AutoTokenizer, AutoModelForQuestionAnswering
 import torch
 import database
@@ -82,28 +81,32 @@ def initialize_models():
 
 def _extract_answer(question, context):
     inputs = _qa_tokenizer(question, context, return_tensors='pt',
-                           truncation=True, max_length=512)
+                           truncation='only_second', max_length=512)
 
     with torch.no_grad():
         outputs = _qa_model(**inputs)
 
-    start_scores = outputs.start_logits
-    end_scores = outputs.end_logits
+    # Only allow answer spans that lie inside the context, never the question.
+    seq_ids = inputs.sequence_ids(0)
+    ctx_mask = torch.tensor([sid == 1 for sid in seq_ids])
+    neg_inf = torch.finfo(outputs.start_logits.dtype).min
+    start_logits = outputs.start_logits[0].masked_fill(~ctx_mask, neg_inf)
+    end_logits = outputs.end_logits[0].masked_fill(~ctx_mask, neg_inf)
 
-    start_idx = torch.argmax(start_scores)
-    end_idx = torch.argmax(end_scores)
-
+    start_idx = int(torch.argmax(start_logits))
+    end_idx = int(torch.argmax(end_logits))
     if end_idx < start_idx:
         end_idx = start_idx
 
+    start_prob = float(torch.softmax(start_logits, dim=0)[start_idx])
+    end_prob = float(torch.softmax(end_logits, dim=0)[end_idx])
+    confidence = max(0.0, min(1.0, (start_prob * end_prob) ** 0.5))
+
     input_ids = inputs['input_ids'][0]
-    answer_tokens = input_ids[start_idx:end_idx + 1]
-    answer = _qa_tokenizer.decode(answer_tokens, skip_special_tokens=True)
-    confidence = float(torch.max(start_scores) + torch.max(end_scores))
+    answer = _qa_tokenizer.decode(input_ids[start_idx:end_idx + 1],
+                                  skip_special_tokens=True).strip()
 
-    answer = answer.strip()
-
-    if answer and len(answer) < 15:
+    if answer and len(answer) < 60:
         expanded = _expand_to_sentence(answer, context)
         if expanded and len(expanded) > len(answer):
             answer = expanded
@@ -148,11 +151,24 @@ NOT_FOUND_MSG = 'The uploaded documents do not contain enough information to ans
 def embed_to_blob(text):
     initialize_models()
     vector = embedding_model.encode(text)
-    return pickle.dumps(vector)
+    return np.asarray(vector, dtype=np.float32).tobytes()
+
+
+def embed_many_to_blobs(texts, batch_size=32):
+    """Embed many chunks at once - much faster than one call per chunk."""
+    initialize_models()
+    if not texts:
+        return []
+    vectors = embedding_model.encode(texts, batch_size=batch_size,
+                                     show_progress_bar=False)
+    return [np.asarray(v, dtype=np.float32).tobytes() for v in vectors]
 
 
 def blob_to_array(blob):
-    return pickle.loads(blob)
+    # Older databases stored pickled arrays; new ones store raw float32 bytes.
+    if blob[:1] == b'\x80':
+        return np.asarray(pickle.loads(blob), dtype=np.float32)
+    return np.frombuffer(blob, dtype=np.float32)
 
 
 _DEFINITION_QUERY_PATTERN = re.compile(
@@ -269,47 +285,88 @@ def _list_boost(section_text):
     return 0.0
 
 
-def get_relevant_sections(query_text, top_k=8, document_ids=None):
-    initialize_models()
-    query_vec = embedding_model.encode(query_text).reshape(1, -1)
+_WORD_RE = re.compile(r"[a-z0-9]+")
+_STOP = {
+    'what', 'is', 'are', 'the', 'a', 'an', 'of', 'in', 'on', 'at', 'for', 'to',
+    'and', 'or', 'how', 'do', 'does', 'did', 'why', 'which', 'who', 'when',
+    'where', 'with', 'by', 'from', 'this', 'that', 'it', 'its', 'be', 'as',
+    'about', 'explain', 'define', 'tell', 'me', 'list', 'give',
+}
 
+
+def _keywords(text):
+    return {w for w in _WORD_RE.findall(text.lower()) if w not in _STOP and len(w) > 2}
+
+
+def _lexical_boost(query_words, section_text):
+    """Small bonus when the chunk literally contains the question's key terms."""
+    if not query_words:
+        return 0.0
+    hits = len(query_words & _keywords(section_text))
+    return 0.08 * (hits / len(query_words))
+
+
+def get_relevant_sections(query_text, top_k=8, document_ids=None, user_id=None):
+    """Rank stored chunks against the question.
+
+    ``user_id`` restricts the search to that user's own documents, and
+    ``document_ids`` narrows it further to a chosen subset.
+    """
+    initialize_models()
+    query_vec = np.asarray(embedding_model.encode(query_text), dtype=np.float32)
+
+    sql = (
+        'SELECT ds.section_id, ds.document_id, ds.section_text, ds.embedding, '
+        '       ds.page_number, d.document_name, d.file_type '
+        'FROM DOCUMENT_SECTION ds JOIN DOCUMENT d ON d.document_id = ds.document_id '
+        'WHERE 1=1'
+    )
+    args = []
+    if user_id is not None:
+        sql += ' AND d.user_id = ?'
+        args.append(user_id)
     if document_ids:
-        placeholders = ','.join('?' * len(document_ids))
-        rows = database.query_db(
-            f'SELECT section_id, document_id, section_text, embedding '
-            f'FROM DOCUMENT_SECTION WHERE document_id IN ({placeholders})',
-            tuple(document_ids)
-        )
-    else:
-        rows = database.query_db(
-            'SELECT section_id, document_id, section_text, embedding FROM DOCUMENT_SECTION'
-        )
+        sql += ' AND ds.document_id IN (%s)' % ','.join('?' * len(document_ids))
+        args.extend(document_ids)
+    rows = database.query_db(sql, tuple(args))
     if not rows:
         return []
+
+    # Build one matrix and score every chunk with a single matrix product.
+    vectors = []
+    for row in rows:
+        if row['embedding'] is None:
+            vectors.append(np.asarray(embedding_model.encode(row['section_text']),
+                                      dtype=np.float32))
+        else:
+            vectors.append(blob_to_array(row['embedding']))
+    matrix = np.vstack(vectors)
+    norms = np.linalg.norm(matrix, axis=1) * (np.linalg.norm(query_vec) or 1.0)
+    norms[norms == 0] = 1.0
+    sims = (matrix @ query_vec) / norms
 
     is_def_query = _is_definition_query(query_text)
     is_list_q = _is_list_query(query_text)
     key_term = _extract_key_term(query_text) if is_def_query else ''
+    query_words = _keywords(query_text)
 
     results = []
-    for row in rows:
-        if row['embedding'] is None:
-            section_vec = embedding_model.encode(row['section_text']).reshape(1, -1)
-        else:
-            section_vec = blob_to_array(row['embedding']).reshape(1, -1)
-
-        score = float(cosine_similarity(query_vec, section_vec)[0][0])
-
+    for row, sim in zip(rows, sims):
+        score = float(sim)
         if is_def_query and key_term:
             score += _definition_boost(row['section_text'], key_term)
         if is_list_q:
             score += _list_boost(row['section_text'])
+        score += _lexical_boost(query_words, row['section_text'])
 
         results.append({
-            'section_id':   row['section_id'],
-            'document_id':  row['document_id'],
-            'section_text': row['section_text'],
-            'score':        score
+            'section_id':    row['section_id'],
+            'document_id':   row['document_id'],
+            'document_name': row['document_name'],
+            'file_type':     row['file_type'],
+            'page_number':   row['page_number'],
+            'section_text':  row['section_text'],
+            'score':         score,
         })
 
     results.sort(key=lambda x: x['score'], reverse=True)
@@ -566,6 +623,18 @@ def _pick_best_section(query_text, sections, fallback_context):
                 fallback_chunks.append(s)
                 continue
             items = _extract_list_items(text, query_text)
+            if len(items) < 2:
+                # The segment is prose, not bullets: show its sentences as points.
+                items = []
+                for x in re.split(r'(?<=[.!?])\s+', scoped):
+                    x = x.strip()
+                    if _is_header_like(x):
+                        continue
+                    # a much longer sentence usually starts a new topic
+                    if len(items) >= 2 and len(x) > max(100, 2 * sum(map(len, items)) / len(items)):
+                        break
+                    items.append(x)
+                items = items[:8]
             if len(items) >= 2:
                 return '\n'.join(f'• {item}' for item in items[:10])
         for s in fallback_chunks:
@@ -584,7 +653,9 @@ def _pick_best_section(query_text, sections, fallback_context):
             other_sections.append(text)
     ordered_texts = list_sections + other_sections
 
-    parts = []
+    # Collect candidate sentences, then keep the ones that best match the
+    # question (falling back to document order when nothing overlaps).
+    candidates = []
     seen_sentences = set()
     for text in ordered_texts:
         for sentence in re.split(r'(?<=[.!?])\s+', text):
@@ -595,11 +666,20 @@ def _pick_best_section(query_text, sections, fallback_context):
             if fingerprint in seen_sentences:
                 continue
             seen_sentences.add(fingerprint)
-            parts.append(sentence)
-            if len(parts) >= 3:
-                break
-        if len(parts) >= 3:
-            break
+            candidates.append(sentence)
+
+    query_words = _keywords(query_text)
+    if query_words and candidates:
+        scored = [(len(query_words & _keywords(c)), -i, i, c)
+                  for i, c in enumerate(candidates)]
+        best = sorted(scored, reverse=True)[:3]
+        if best[0][0] > 0:
+            # drop zero-overlap filler when something better exists
+            parts = [c for score, _, _, c in sorted(best, key=lambda t: t[2]) if score > 0]
+        else:
+            parts = candidates[:3]
+    else:
+        parts = candidates[:3]
 
     return ' '.join(parts) if parts else fallback_context
 
@@ -610,7 +690,10 @@ def _polish_answer(answer):
 
     answer = _clean_text(answer)
     answer = re.sub(r'(^|\n|\s{2,})o\s+(?=[A-Za-z])', r'\1• ', answer)
+    is_bullet_list = len(re.findall(r'(?:^|\n)\s*•\s', answer)) >= 2
     answer = re.sub(r'^[\s•\-\*]+', '', answer).strip()
+    if is_bullet_list:
+        answer = '• ' + answer
 
     if not answer:
         return answer
@@ -626,9 +709,29 @@ def _polish_answer(answer):
     return answer.strip()
 
 
-def generate_answer(query_text, sections):
+def _relevance_confidence(sections):
+    """Map the best retrieval score (0.25 threshold .. ~0.7) onto 0..1."""
     if not sections:
-        return {'answer': NOT_FOUND_MSG, 'context': ''}
+        return 0.0
+    return max(0.0, min(1.0, (sections[0]['score'] - 0.25) / 0.45))
+
+
+def generate_answer(query_text, sections):
+    """Return ``{'answer', 'context', 'confidence'}`` for a question."""
+    if not sections:
+        return {'answer': NOT_FOUND_MSG, 'context': '', 'confidence': 0.0}
+
+    relevance = _relevance_confidence(sections)
+
+    # A weak retrieval score AND missing key terms means the documents most
+    # likely don't cover the question - say so rather than guess.
+    query_words = _keywords(query_text)
+    if query_words and relevance < 0.25:
+        seen_words = set()
+        for s in sections[:3]:
+            seen_words |= _keywords(s['section_text'])
+        if len(query_words & seen_words) < len(query_words):
+            return {'answer': NOT_FOUND_MSG, 'context': '', 'confidence': 0.0}
 
     # Build context from top retrieved sections (cleaned)
     context_parts = []
@@ -645,11 +748,12 @@ def generate_answer(query_text, sections):
     full_section = _clean_text(sections[0]['section_text'])
 
     if not context or len(context) < 20:
-        return {'answer': NOT_FOUND_MSG, 'context': ''}
+        return {'answer': NOT_FOUND_MSG, 'context': '', 'confidence': 0.0}
 
     if _is_list_query(query_text):
         best = _pick_best_section(query_text, sections, context)
-        return {'answer': _polish_answer(best), 'context': full_section}
+        return {'answer': _polish_answer(best), 'context': full_section,
+                'confidence': relevance}
 
     if _is_definition_query(query_text):
         key_term = _extract_key_term(query_text)
@@ -665,17 +769,20 @@ def generate_answer(query_text, sections):
                     if priority == 0:
                         break
             if best_def:
-                return {'answer': _polish_answer(best_def), 'context': full_section}
+                return {'answer': _polish_answer(best_def), 'context': full_section,
+                        'confidence': min(1.0, relevance + 0.1)}
 
     try:
-        answer, confidence = _extract_answer(query_text, context)
+        answer, qa_conf = _extract_answer(query_text, context)
 
         if len(answer) > 10:
-            return {'answer': _polish_answer(answer), 'context': full_section}
-        else:
-            best = _pick_best_section(query_text, sections, context)
-            return {'answer': _polish_answer(best), 'context': ''}
+            return {'answer': _polish_answer(answer), 'context': full_section,
+                    'confidence': 0.5 * relevance + 0.5 * qa_conf}
+        best = _pick_best_section(query_text, sections, context)
+        return {'answer': _polish_answer(best), 'context': '',
+                'confidence': 0.7 * relevance}
 
     except Exception:
         best = _pick_best_section(query_text, sections, context)
-        return {'answer': _polish_answer(best), 'context': ''}
+        return {'answer': _polish_answer(best), 'context': '',
+                'confidence': 0.7 * relevance}
